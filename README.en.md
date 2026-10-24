@@ -1,3 +1,92 @@
+# Eidolon Yoibanashi
+
+Author: [S-Elirch](https://github.com/S-Elirch) · [Repository](https://github.com/S-Elirch/Eidolon_Yoibanashi)
+
+A personal fork of [Sallyn0225/eidolon-sc](https://github.com/Sallyn0225/eidolon-sc) **v0.2.0**. It adds a chance for a character to start a conversation when you open her chat at night.
+
+[Demo](#demo) · [How to use](#how-to-use) · [Compatibility](#compatibility) · [Feature and developer notes](FORK.md) (Chinese) · [Original project](#original-eidolon-sc-project)
+
+Late at night, you open her chat to say something. Before you send your message, she says hello—or asks about something you talked about earlier.
+
+Your relationship, recent chats, available topics, and a short wait all help decide whether she speaks, what she says, and when her message arrives. The aim is a small, natural moment while you are typing, thinking, or reading earlier messages.
+
+The features added in this fork were developed through Vibe Coding with Codex. [FORK.md](FORK.md) explains the design choices, implementation, and scope of testing in Chinese.
+
+## Demo
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="docs/images/visit-rinze.gif" width="100%" alt="Rinze starts talking before the user sends a message">
+      <p align="center"><sub><b>She speaks first</b><br>Before you send your message, she asks about an earlier topic.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/visit-user-first.gif" width="100%" alt="The user sends a message first and Kogane replies normally">
+      <p align="center"><sub><b>You speak first</b><br>You send your message, and she replies to it.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/visit-character-first.gif" width="100%" alt="Kogane starts talking while the user is typing; the draft stays in the input box">
+      <p align="center"><sub><b>Her message arrives while you type</b><br>Your draft stays in the input box while you read her message.</sub></p>
+    </td>
+  </tr>
+</table>
+
+These browser recordings use a phone-sized window, real LLM replies, test data, and a simulated clock.
+
+## How to use
+
+Build from this fork's source with [docker-compose.yml](docker-compose.yml). The upstream prebuilt images do not include this feature.
+
+For a new install, download this fork's `my-features` source. Copy `.env.example` to `.env` and fill in at least `CHAT_LLM_BASE_URL`, `CHAT_LLM_API_KEY`, and `CHAT_LLM_MODEL`. The model must support streaming and tool calls. From the source folder, run:
+
+```sh
+docker compose up -d --build
+```
+
+Open <http://localhost:3000>. For testing on your own computer, set `EIDOLON_DEV_LOGIN=1` in `.env` to use development login. For a public server, follow the [deployment guide](docs/deploy.md) to set up normal login. Memory, relationship, and voice services are optional; see the [configuration guide](docs/configuration.en.md).
+
+Go to **Settings → Reach-outs → Night encounters** (UI labels: **设置 → 搭话 → 夜间相遇**) and choose a mode. The feature is off by default. It runs from **22:00 to 05:00 the next day**, using the time zone in your profile. Its settings are separate from the original background reach-outs.
+
+To try it for the first time, finish at least one normal exchange with a character. Choose the tonight mode, open her current chat again, and stay on the page without sending first. If relationship features are on, you need Trust or a higher level. When they are off, no relationship-level draw is used. The 5–8 seconds are the wait before preparation; model generation and text display take more time.
+
+- **Natural encounter (自然偶遇)**: Your relationship sets the chance of an encounter. After a short wait, she may speak first. She can also stay quiet if there is no suitable topic.
+- **I'd like you to speak first tonight (今晚想听你先说)**: Choose this mode for a night when you want to try the feature. It uses a 5–8 second wait and skips the natural chance draw and some frequency limits. Relationship requirements, an unanswered earlier reach-out, and busy states can still prevent a message. Opening a chat does not always produce a reply. The next night returns to Natural encounter.
+
+If you send a message first, outreach that has not started appearing gives way to the normal reply. Once the model request has started, refreshing or leaving the page alone does not cancel generation or saving. The task can finish and save a message while you are away, subject to the usual checks.
+
+See [FORK.md](FORK.md) and the [module guide](backend/src/eidolon/visit_outreach/README.md) for the rules, API costs, design choices, and ways to connect other forks. Both guides are in Chinese.
+
+## Upgrading and going back
+
+Before upgrading an existing v0.2.0 deployment, make a backup. Keeping the Compose project name is the simplest option; always check that you are using the original data volume. If you change the project name, map the original volume explicitly. Changing the folder name can create a new, empty volume, making old records appear missing. Do not use `docker compose down -v` to update an existing deployment.
+
+To go back to upstream **v0.2.0**, do not only switch images. The old code does not clean up this feature's added tables, and deleting an account can fail with a foreign-key error after the feature has been enabled. There are two options:
+
+- **Restore a backup from before the upgrade**: Restore both the old program and its database. That backup does not include later chats, memories, or settings, so keep a full backup of the current database as well.
+- **Keep recent records and remove feature data**: Stop the backend and back up the whole current database. On a copy, remove only the three tables below. Check database integrity and confirm that the original data is unchanged. Test that v0.2.0 can read records and delete accounts, then switch to the cleaned database and the old program.
+
+| Feature table | Data removed |
+|---|---|
+| `visit_outreach_on` | Night encounter and tonight-mode settings |
+| `dev2_night_tasks` | Generation task states and prepared-result snapshots |
+| `dev2_night_opportunities` | Nightly chance draws |
+
+The second option should keep accounts, conversations, memories, relationship data, and the original `reach_outs` table. Finished outreach messages are saved in that original table and should stay. Keep the backend stopped during cleanup so it cannot write data or recreate the feature tables. Use SQLite's backup API, or make a complete backup after fully stopping the backend. Copying only a live `.db` file can miss data in its WAL file.
+
+**Test status**: We tested the forward upgrade and the foreign-key error from switching straight back to the old version. A tool to remove these three tables has not been provided or tested yet. This is a rollback plan, not a tested one-click rollback feature. It does not cover other versions or forks with different database changes.
+
+## Compatibility
+
+- **Base version**: Eidolon-SC **v0.2.0**. Normal replies and the original background reach-outs keep their upstream flows.
+- **Hibi testing**: A separate adaptation was tested on commit `1fb2454` of [Eidolon-Hibi](https://github.com/x499806631-commits/Eidolon-Hibi)'s `my-features` branch. With backend integration and frontend changes, testing covered real LLM outreach, streamed text, normal replies, message saving, and recovery after refresh.
+- **Scope**: The Hibi test used shared history, memory, and basic relationship context. It did not connect Hibi's own schedule context or rules for avoiding busy times. Hibi and other forks still need backend integration and frontend changes. This is an embedded module, not a plugin you can install directly.
+
+---
+
+## Original eidolon-sc project
+
+The introduction and general setup guides below are from [Sallyn0225](https://github.com/Sallyn0225)'s original project. The section above describes this fork's added feature; the section below describes the original project.
+
 <div align="center">
 
 <img src="docs/images/landing.webp" alt="Eidolon-SC: talk with the idols of 283 Production" width="100%">

@@ -294,6 +294,8 @@ def create_app(backend: Backend) -> FastAPI:
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
     app.state.backend = backend
+    from eidolon.visit_outreach.runtime import install
+    install(app, backend)
     app.middleware("http")(session_middleware(backend.settings))
 
     @app.exception_handler(OverLimit)
@@ -616,6 +618,8 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = await conversation_or_404(conversation_id, user_id)
+        if conversation_id in backend.visits.visible:
+            raise HTTPException(409, "角色正在回复，请稍后再试")
         if body.own_llm is not None:  # transitional: see `TurnInput.own_llm`
             raise HTTPException(422, "页面已经更新，请刷新后再发")
         brought = body.own_keys.brought() if body.own_keys else BroughtKeys()

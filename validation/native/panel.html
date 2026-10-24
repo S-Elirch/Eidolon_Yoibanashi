@@ -1,0 +1,45 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>dev4 测试 Panel</title>
+<h1>dev4 · v0.2.0 访问搭话测试</h1>
+<p>正式聊天页面＋真实 LLM。仅限此 dev4 实例；点击进入聊天并满足条件后才请求模型。</p>
+<button id="login">登录导入数据测试账号</button> <button id="refresh">刷新状态</button>
+<p id="who"></p>
+<label>已有测试账号 <select id="accounts"></select></label> <button id="select">切换账号</button>
+<button id="reset">复制当前账号，开始新轮次（保留旧记录）</button>
+<p>新轮次保留资料、对话、记忆与亲密度，不复制机会计数。旧对话仍受「近期交流、尚未回应」规则限制，不会自动变成可搭话。</p>
+<fieldset><legend>时钟与展示节奏</legend>
+<p><label><input type="checkbox" id="simulated">使用模拟时间</label> <label>Sydney 时间 <input id="local" type="datetime-local" step="1"></label> <label><input type="checkbox" id="paused">暂停模拟时钟</label></p>
+<p><label>停留档位 <select id="dwell_tier"><option value="-1">自动：随夜间时段抽取</option><option value="0">快：5–8 秒</option><option value="1">中：10–12 秒</option><option value="2">慢：15–18 秒</option></select></label>
+<label>开始准备后，首段最早出现 <select id="first_body_delay"><option>0</option><option selected>4</option><option>8</option><option>12</option><option>15</option><option>20</option></select> 秒</label>
+<label>转圈预留 <select id="typing_lead"><option>0</option><option>1</option><option selected>2</option><option>3</option></select> 秒</label></p>
+<button id="apply">应用设置</button> <button data-jump="30m">前进30分钟</button> <button data-jump="22">下一次22点</button> <button data-jump="1d">前进一天</button>
+<p>模拟时间作用于整个 dev4，普通聊天和日程也使用此时钟；登录会话随跳时续期。已有消息不改时间。等待、流式与120秒超时按真实秒数。后台普通搭话在 Panel 测试进程中暂停。</p>
+</fieldset>
+<p><label>访问搭话 <select id="mode"><option value="off">关闭</option><option value="natural">自然相遇</option><option value="tonight">今晚想听你先说</option></select></label> <button id="setmode">应用模式</button></p>
+<p>自然机会：亲密85%、亲近70%、信任50%、更低关系不触发；每角色每晚一次、同账号每晚最多三次准备。「今晚想听你先说」整晚采用快档5–8秒，覆盖上方档位选择；其原有机会规则、冷却与关系资格不变。模拟时区应与账号设置一致。</p>
+<p><a href="/conversations">进入正式聊天列表</a> · <a href="/settings/reach-outs">搭话设置</a> · <a href="/play/calendar">日程</a></p>
+<pre id="notice" role="status"></pre><details><summary>机会与任务记录</summary><pre id="records"></pre></details>
+<script>
+const $=id=>document.getElementById(id);
+async function request(path,body,method='POST'){
+ const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const text=await r.text(); if(!r.ok)throw Error(r.status+' '+text); return text?JSON.parse(text):{};
+}
+async function refresh(){const s=await request('/api/dev4/state',undefined,'GET');
+ $('who').textContent='当前账号：'+s.user+'；当前时间：'+s.local+'；夜晚归属：'+s.night;
+ for(const k of ['local','dwell_tier','first_body_delay','typing_lead','mode'])$(k).value=s[k];
+ for(const k of ['simulated','paused'])$(k).checked=s[k];
+ $('accounts').replaceChildren(...s.accounts.map(a=>{const o=document.createElement('option');o.value=a.id;o.textContent=a.name;o.selected=a.id===s.user_id;return o;}));
+ $('records').textContent=JSON.stringify({wait_probabilities:s.probabilities,opportunities:s.opportunities,tasks:s.tasks},null,2);
+}
+async function act(fn){for(const b of document.querySelectorAll('button'))b.disabled=true;
+ try{const result=await fn();$('notice').textContent=result?.message||'已更新';await refresh();}catch(e){$('notice').textContent=e.message;}
+ finally{for(const b of document.querySelectorAll('button'))b.disabled=false;}}
+ $('login').onclick=()=>act(()=>request('/api/auth/dev-login',{name:'dev2-import-20261023'}));
+ $('refresh').onclick=()=>act(refresh);
+ $('select').onclick=()=>act(()=>request('/api/dev4/select/'+$('accounts').value,{}));
+ $('reset').onclick=()=>act(()=>request('/api/dev4/reset',{}));
+ $('apply').onclick=()=>act(()=>request('/api/dev4/controls',{local:$('local').value,simulated:$('simulated').checked,paused:$('paused').checked,dwell_tier:Number($('dwell_tier').value),first_body_delay:Number($('first_body_delay').value),typing_lead:Number($('typing_lead').value)}));
+ document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>act(()=>request('/api/dev4/jump',{action:b.dataset.jump})));
+ $('setmode').onclick=()=>act(()=>request('/api/account/visit-outreach-mode',{mode:$('mode').value},'PUT'));
+ refresh().catch(()=>{$('notice').textContent='请先点击登录，或沿用当前开发测试账号。';});
+</script></html>

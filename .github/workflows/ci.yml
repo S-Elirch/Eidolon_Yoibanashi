@@ -1,14 +1,14 @@
-# 每个 PR 和 main 上的每次推送：检查后端、前端和 shell 脚本，同时构建两个镜像。
-# 推送到 main 或 v* 标签时，检查和构建全部通过才把镜像推到 GHCR（部署见 docs/deploy.md「升级」）。
+# Fork CI: checks and builds only; publication is configured separately before release.
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
-    branches: [main]
+    branches: [my-features]
     tags: ["v*"]
 
-# 同一个 PR 推了新提交时取消旧的运行；main 上的每次推送都跑完，免得漏发镜像
+# 同一个PR的新提交取消旧运行；分支推送保留各次检查。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -80,39 +80,15 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-  # 推送到 main 或 v* 标签、上面全部通过时：按 image 的缓存再构建一次（通常层都命中，缓存被清掉时整个重建），推到 GHCR
-  publish:
-    if: github.event_name == 'push'
-    needs: [backend, frontend, shellcheck, image]
+  visit-outreach:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        service: [backend, frontend]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      # main → :main，v1.2.3 → :1.2.3 和 :latest，每次推送另有 :sha-<7 位提交哈希> 方便回滚
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/sallyn0225/eidolon-sc-${{ matrix.service }}
-          tags: |
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=sha
-      - uses: docker/build-push-action@v7
-        with:
-          context: ${{ matrix.service }}
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
+      - name: Build isolated visit test image
+        run: docker build -f validation/native/Dockerfile -t visit-outreach-test .
+      - name: Test with fake providers and temporary databases
+        run: |
+          docker run --rm --network none --entrypoint sh \
+            -v "$PWD/characters:/characters:ro" visit-outreach-test \
+            -c 'PYTHONPATH=/app/src:/app /app/.venv/bin/python -m unittest discover -s /app/validation/native -p "test_*.py" -q'

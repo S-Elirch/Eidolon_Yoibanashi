@@ -40,6 +40,8 @@ export type Turn = { confirmed: boolean; userKey: string; replyKey: string };
 export type ConversationLog = { entries: Entry[]; turn: Turn | null };
 
 export type LogAction =
+  | { type: "reach-out-started"; at: string }
+  | { type: "reach-out-done"; message: import("@/lib/api").ReachOut }
   /** The conversation was opened or started: show its record. */
   | { type: "loaded"; messages: Recorded[] }
   /** The user typed something outside a call, at `at`; show it before the backend takes it up. */
@@ -59,6 +61,15 @@ export const emptyLog: ConversationLog = { entries: [], turn: null };
 
 export function conversationLog(log: ConversationLog, action: LogAction): ConversationLog {
   switch (action.type) {
+    case "reach-out-started": {
+      const clean = withoutTurn(log);
+      const key = `reach-${action.at}`;
+      return { entries: [...clean.entries, { kind: "character", key, segments: [], pending: true,
+        at: action.at, affinity: null, photo: null, reachOut: true }],
+        turn: { confirmed: true, userKey: `${key}-absent`, replyKey: key } };
+    }
+    case "reach-out-done":
+      return log.turn ? { entries: replaced(log.entries, log.turn.replyKey, () => toEntry(action.message)), turn: null } : log;
     case "loaded":
       return { entries: action.messages.map(toEntry), turn: null };
     case "submitted":

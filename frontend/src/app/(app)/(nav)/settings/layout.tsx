@@ -78,7 +78,7 @@ function SettingsLevels({ children }: { children: ReactNode }) {
           <h1 className="text-list-title">{t.title}</h1>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto pb-4">
-          {settingsGroups(account?.reach_outs ?? null).map((group, i) => (
+          {settingsGroups(account?.reach_outs ?? null, account?.visit_outreach !== undefined).map((group, i) => (
             <Fragment key={group[0]}>
               {i > 0 && <Separator className="my-1" />}
               <ul>

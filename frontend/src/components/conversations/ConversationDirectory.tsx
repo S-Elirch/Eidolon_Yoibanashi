@@ -1,4 +1,5 @@
 "use client";
+import { nightVisit } from "@/lib/api";
 
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -362,6 +363,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       // 同一时间只和一位角色说话：外壳里原来那一份就此结束（要问的，在来这里之前已经问过了）。
       if (current) end(current);
       const live = new LiveConversation(characterId, {
+        nightVisit,
         listConversations,
         createConversation,
         listMessages: (conversationId) =>

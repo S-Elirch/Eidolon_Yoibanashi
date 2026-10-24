@@ -22,6 +22,9 @@ import sqlite3
 from pathlib import Path
 
 USER_DATA = [
+    ("visit_outreach_on", "user_id = ?"),
+    ("dev2_night_tasks", "user = ?"),
+    ("dev2_night_opportunities", "user = ?"),
     ("memory_vectors", "user_id = ?"),
     ("memories", "user_id = ?"),
     ("photos", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
@@ -53,6 +56,7 @@ USER_DATA = [
 what refers to a row before the row."""
 
 CONVERSATION_DATA = [
+    ("dev2_night_tasks", "conversation = ?"),
     ("photos", "conversation_id = ?"),
     ("messages", "conversation_id = ?"),
     ("conversation_events", "conversation_id = ?"),

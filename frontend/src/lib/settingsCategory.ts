@@ -30,8 +30,8 @@ const ROOT = "/settings";
 
 /** The first level's groups for an account whose switch for reach-outs is `reachOuts` (null where
  * the deployer has them off, or the account not read yet): without 「搭话」 then. */
-export function settingsGroups(reachOuts: boolean | null): SettingsCategory[][] {
-  return SETTINGS_GROUPS.map((group) => group.filter((category) => category !== "reach-outs" || reachOuts !== null));
+export function settingsGroups(reachOuts: boolean | null, visitsAvailable = false): SettingsCategory[][] {
+  return SETTINGS_GROUPS.map((group) => group.filter((category) => category !== "reach-outs" || reachOuts !== null || visitsAvailable));
 }
 
 function isCategory(name: string | null | undefined): name is SettingsCategory {

@@ -78,6 +78,7 @@ import { PhotoBlock } from "./PhotoBlock";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
 import { useHerAchievements } from "./useHerAchievements";
+import { useVisitOutreach } from "./useVisitOutreach";
 import { usePastConversation, type Viewing } from "./usePastConversation";
 import { useProducerTimezone } from "./useProducerTimezone";
 import { useScheduleOn } from "./useScheduleOn";
@@ -150,6 +151,8 @@ export function ConversationView({
 
   // 看历史对话时她的当前对话不在屏幕上：外壳照常标她没看过的搭话，也不替这一页重读。
   const isPastShown = viewing !== null;
+  useVisitOutreach(live, conversation.status === "open" ? conversation.id : null,
+    !account?.visit_outreach || isPastShown || pickingPast || pickingOutfit);
   useEffect(() => {
     showPast(isPastShown);
   }, [isPastShown, showPast]);

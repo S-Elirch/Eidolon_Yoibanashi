@@ -290,6 +290,7 @@ export type Tones = {
 /** What the conversation needs from outside: the backend, this device's preferences, her
  * voice, the phone's own sounds, and the conversation list beside the page. */
 export type Ports = {
+  nightVisit?: (id: string, signal: AbortSignal) => AsyncIterable<import("@/lib/api").NightVisitEvent>;
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
   createConversation: (characterId: string) => Promise<Conversation>;
@@ -322,6 +323,66 @@ export type Ports = {
 };
 
 export class LiveConversation {
+  private visit: AbortController | null = null;
+  private visitVisible = false;
+
+  /** Entry only. Preparation is quiet; once typing starts ordinary busy input rules apply. */
+  async nightVisit(dwellSeconds = 0, smooth = false): Promise<void> {
+    const id = this.openConversationId();
+    if (!id || !this.ports.nightVisit || this.visit || this.disposed || !isFree(this.state)
+      || isCooling(this.state) || isEnded(this.state)) return;
+    const controller = new AbortController();
+    this.visit = controller;
+    let visible = false;
+    let done = false;
+    try {
+      if (dwellSeconds > 0) await new Promise<void>((resolve) => {
+        const finish = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", finish); resolve(); };
+        const timer = setTimeout(finish, dwellSeconds * 1000);
+        controller.signal.addEventListener("abort", finish, { once: true });
+      });
+      if (controller.signal.aborted || this.disposed || !isFree(this.state)
+        || this.openConversationId() !== id) return;
+      for await (const event of this.ports.nightVisit(id, controller.signal)) {
+        if (controller.signal.aborted || (this.disposed && !visible)) break;
+        if (event.type === "recorded") {
+          const messages = await this.ports.listMessages(id);
+          if (!this.disposed && this.openConversationId() === id && isFree(this.state))
+            this.apply({ type: "loaded", messages });
+          this.ports.onListChanged();
+        } else if (event.type === "typing") {
+          if (!isFree(this.state)) break;
+          visible = true;
+          this.visitVisible = true;
+          this.apply({ type: "reach-out-started", at: event.at ?? this.isoNow() }, { busy: true });
+        } else if (visible) {
+          if (smooth && event.type === "delta") {
+            const chars = Array.from(event.text);
+            const step = chars.length > 80 ? 2 : 1;
+            for (let i = 0; i < chars.length; i += step) {
+              const text = chars.slice(i, i + step).join("");
+              this.apply({ ...event, text });
+              // Only pace the first live presentation; saved history stays immediate.
+              if (!this.disposed && (typeof document === "undefined" || document.visibilityState === "visible"))
+                await new Promise<void>((resolve) => setTimeout(resolve, /[。！？!?、，,]/u.test(text) ? 100 : 40));
+            }
+          } else this.apply(event);
+          if (event.type === "reach-out-done") { done = true; this.ports.onListChanged(); }
+        }
+      }
+    } catch { /* Failed opportunities remain silent and unrecorded. */ }
+    finally {
+      controller.abort();
+      if (visible) {
+        if (!done) this.apply({ type: "interrupted" });
+        this.update({ busy: false });
+      }
+      if (this.visit === controller) { this.visit = null; this.visitVisible = false; }
+    }
+  }
+
+  // Like ordinary text replies, visible replies finish when navigating away.
+  cancelNightVisit(): void { if (!this.visitVisible) this.visit?.abort(); }
   private state: State;
   private published: Snapshot;
   private listeners = new Set<() => void>();
@@ -385,6 +446,7 @@ export class LiveConversation {
    * text turn under way is not stopped; its reply is still recorded, just no longer shown.
    * A conversation still opening is not shown either. */
   dispose(): void {
+    this.cancelNightVisit();
     this.disposed = true;
     if (this.pacing !== null) clearTimeout(this.pacing);
     if (this.cueing !== null) clearTimeout(this.cueing);
@@ -448,6 +510,7 @@ export class LiveConversation {
     // cooldown, nor into a conversation she has ended.
     if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
     if (isCooling(this.state) || isEnded(this.state)) return;
+    this.cancelNightVisit();
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
@@ -504,6 +567,7 @@ export class LiveConversation {
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
     if (!conversationId || !isFree(this.state) || isCooling(this.state) || isEnded(this.state)) return;
+    this.cancelNightVisit();
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);

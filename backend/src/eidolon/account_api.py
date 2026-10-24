@@ -375,6 +375,8 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "is_admin": signs_in_as_admin(methods, settings),
             "exempting_keys": [s for s in SERVICES if s in backend.config.exempting_keys],
             "reach_outs": reach_outs,
+            "visit_outreach": await backend.visits.host.enabled(user_id),
+            "visit_outreach_mode": await backend.visits.host.mode(user_id),
             "sponsor_version": sponsor.version,
         }
 
@@ -408,6 +410,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Delete the user and all their data for good, signing them out everywhere; allowed
         before they agree to the terms too."""
         await accounts.delete(user.id)
+        backend.visits.forget_user(user.id)
         clear_session_cookie(response, settings)
 
     own_keys = backend.own_keys

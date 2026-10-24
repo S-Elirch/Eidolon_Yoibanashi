@@ -2785,3 +2785,166 @@ describe("LiveConversation: what the list shows newer", () => {
     expect(reads).toEqual(["c1"]);
   });
 });
+
+describe("visit dwell confirmation", () => {
+  it.each([1000, 3000, 4999])("repeated %ims visits never accumulate into an opportunity", async (duration) => {
+    let calls = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { calls++; } } });
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 10; i++) {
+        const work = live.nightVisit(5, true);
+        await vi.advanceTimersByTimeAsync(duration);
+        live.cancelNightVisit(); await work;
+      }
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(calls).toBe(0);
+      const work = live.nightVisit(5, true);
+      await vi.advanceTimersByTimeAsync(5000); await work;
+      expect(calls).toBe(1);
+    } finally { live.dispose(); vi.useRealTimers(); }
+  });
+  it("leaving the conversation during dwell disposes the timer without a request", async () => {
+    let calls = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { calls++; } } });
+    vi.useFakeTimers();
+    try {
+      const work = live.nightVisit(5, true);
+      await vi.advanceTimersByTimeAsync(4999);
+      live.dispose(); await work;
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(calls).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it("smooths a burst without changing the text or replaying saved messages", async () => {
+    const { live } = await conversation({ ports: { nightVisit: async function* () {
+      yield { type: "typing" };
+      yield { type: "delta", segment: 0, lang: "ja", text: "こんばんは。" };
+      yield { type: "reach-out-done", message: { type: "reach_out", id: 1, ja: "こんばんは。", zh: "",
+        segments: [{ja:"こんばんは。",zh:""}], created_at:new Date(NOW).toISOString() } };
+    } } });
+    vi.useFakeTimers();
+    try {
+      const work = live.nightVisit(0, true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(live.snapshot().entries).toMatchObject([{segments:[{ja:"こ"}]}]);
+      await vi.advanceTimersByTimeAsync(1000); await work;
+      expect(live.snapshot().entries).toMatchObject([{pending:false,segments:[{ja:"こんばんは。"}]}]);
+    } finally { live.dispose(); vi.useRealTimers(); }
+  });
+  it("does not call the server before dwell completes", async () => {
+    let calls = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { calls++; } } });
+    vi.useFakeTimers();
+    try {
+      const work = live.nightVisit(8);
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(calls).toBe(0);
+      await vi.advanceTimersByTimeAsync(1); await work;
+      expect(calls).toBe(1);
+    } finally { live.dispose(); vi.useRealTimers(); }
+  });
+  it("cancels a short visit without a request and starts fresh on return", async () => {
+    let calls = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { calls++; } } });
+    vi.useFakeTimers();
+    try {
+      const work = live.nightVisit(3);
+      await vi.advanceTimersByTimeAsync(2000);
+      live.cancelNightVisit(); await work;
+      await vi.advanceTimersByTimeAsync(10000); expect(calls).toBe(0);
+      const again = live.nightVisit(3);
+      await vi.advanceTimersByTimeAsync(3000); await again; expect(calls).toBe(1);
+    } finally { live.dispose(); vi.useRealTimers(); }
+  });
+  it("keeps preparing when a draft was entered during dwell", async () => {
+    let calls = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { calls++; } } });
+    vi.useFakeTimers();
+    try {
+      const work = live.nightVisit(3); live.setDraft("晚上好");
+      await vi.advanceTimersByTimeAsync(3000); await work; expect(calls).toBe(1);
+      expect(live.snapshot().draft).toBe("晚上好");
+    } finally { live.dispose(); vi.useRealTimers(); }
+  });
+});
+
+describe("native visit outreach", () => {
+  it("reloads completed records on reconnect without adding another bubble", async () => {
+    const { live } = await conversation({ ports: {
+      nightVisit: async function* () { yield { type: "recorded" }; },
+      listMessages: async () => [{ type: "reach_out", id: 3, ja: "夜", zh: "晚", segments: [{ja:"夜",zh:"晚"}], created_at:new Date(NOW).toISOString() }],
+    } });
+    await live.nightVisit();
+    expect(live.snapshot().entries).toHaveLength(1);
+    expect(live.snapshot().entries).toMatchObject([{ pending:false,reachOut:true }]);
+    live.dispose();
+  });
+  it("stays quiet while preparing, streams without a user bubble, and keeps busy drafts", async () => {
+    const ready = gate(), body = gate(), finish = gate();
+    const reached: ReachOut = { type: "reach_out", id: 99, ja: "こんばんは", zh: "晚上好",
+      segments: [{ ja: "こんばんは", zh: "晚上好" }], created_at: "2026-10-22T12:00:00+00:00" };
+    const { live, sentTo } = await conversation({ ports: {
+      nightVisit: async function* () {
+        await ready.gate;
+        yield { type: "typing", at: reached.created_at };
+        await body.gate;
+        yield { type: "delta", segment: 0, lang: "ja", text: "こん" };
+        await finish.gate;
+        yield { type: "reach-out-done", message: reached };
+      },
+    } });
+    const work = live.nightVisit();
+    expect(live.snapshot().entries).toHaveLength(0);
+    ready.open(); await settled();
+    live.setDraft("还没睡吗"); await live.submit();
+    expect(live.snapshot().draft).toBe("还没睡吗");
+    expect(sentTo).toHaveLength(0);
+    expect(live.snapshot().entries).toMatchObject([{ kind: "character", pending: true, segments: [], at: reached.created_at }]);
+    body.open(); await settled();
+    expect(live.snapshot().entries).toMatchObject([{ segments: [{ ja: "こん" }] }]);
+    finish.open(); await work;
+    expect(live.snapshot().entries).toMatchObject([{ pending: false, reachOut: true }]);
+    expect(live.snapshot().draft).toBe("还没睡吗");
+    live.dispose();
+  });
+  it("a submitted message cancels quiet preparation and ignores its late typing event", async () => {
+    const ready = gate();
+    let signal: AbortSignal | undefined;
+    const { live } = await conversation({ ports: {
+      nightVisit: async function* (_, abort) { signal = abort; await ready.gate; yield { type: "typing" }; },
+    }, turns: async function* () { yield { type: "error", message: "fake" }; } });
+    const work = live.nightVisit();
+    live.setDraft("晚上好"); await live.submit();
+    expect(signal?.aborted).toBe(true);
+    ready.open(); await work;
+    expect(live.snapshot().entries).toHaveLength(0);
+    live.dispose();
+  });
+  it("allows an opportunity with an existing unsent draft", async () => {
+    let requests = 0;
+    const { live } = await conversation({ ports: { nightVisit: async function* () { requests++; } } });
+    live.setDraft("草稿"); await live.nightVisit();
+    expect(requests).toBe(1);
+    expect(live.snapshot().draft).toBe("草稿");
+    live.dispose();
+  });
+  it("finishes a visible reply after page navigation, like ordinary text replies", async () => {
+    const finish = gate();
+    let signal: AbortSignal | undefined;
+    const { live, listChanged } = await conversation({ ports: {
+      nightVisit: async function* (_, abort) {
+        signal = abort;
+        yield { type: "typing" };
+        await finish.gate;
+        yield { type: "reach-out-done", message: { type: "reach_out", id: 1, ja: "夜", zh: "晚",
+          segments: [{ ja: "夜", zh: "晚" }], created_at: new Date(NOW).toISOString() } };
+      },
+    } });
+    const work = live.nightVisit(); await settled();
+    live.dispose();
+    expect(signal?.aborted).toBe(false);
+    finish.open(); await work;
+    expect(listChanged()).toBe(1);
+  });
+});

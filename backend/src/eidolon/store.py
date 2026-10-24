@@ -795,7 +795,8 @@ class Store:
         return conversation_id in self._taking_turns
 
     async def add_reach_out(
-        self, conversation_id: str, said: list[Segment], contact: datetime, in_call: bool
+        self, conversation_id: str, said: list[Segment], contact: datetime, in_call: bool,
+        *, created_at: str | None = None
     ) -> ReachOut:
         """Record what she said first in the conversation, now, as she thought it after the
         user and she were last in touch at `contact`; not seen yet. It is not,
@@ -805,7 +806,7 @@ class Store:
         `contact`, without a reach-out since."""
         if in_call or self.is_taking_turn(conversation_id):
             raise ReachOutRefused()
-        return await self._db.write(_add_reach_out, conversation_id, said, contact, _now())
+        return await self._db.write(_add_reach_out, conversation_id, said, contact, created_at or _now())
 
     async def reach_out_recorded_as(self, reach_out_id: int, record_id: int | None) -> None:
         """Keep the id of the activity record of the reach-out, once it is written; answered

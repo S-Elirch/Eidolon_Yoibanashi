@@ -81,6 +81,7 @@ from eidolon.store import Store
 from eidolon.titles import Titles
 from eidolon.usage import UsageLimiter
 from eidolon.world import World, load_world, world_path
+from eidolon.visit_outreach.runtime import build_visits, Service as VisitService
 
 log = logging.getLogger(__name__)
 
@@ -145,6 +146,7 @@ class Backend:
     """Has characters reach out to users once their time comes."""
     schedules: Schedules
     """Each week's jobs and every producer's schedule, where schedules are on."""
+    _visits: VisitService | None = field(default=None, init=False, repr=False)
     world: World | None = None
     """The world setting; None without its data file."""
     corpus: StoryCorpus | None = None
@@ -156,6 +158,17 @@ class Backend:
     _tidying: asyncio.Task[None] | None = field(default=None, repr=False)
     _watching: asyncio.Task[None] | None = field(default=None, repr=False)
     _loading_stories: asyncio.Task[None] | None = field(default=None, repr=False)
+
+    @property
+    def visits(self) -> VisitService:
+        """Installed by build_visits before the backend is served, even when disabled."""
+        if self._visits is None:
+            raise RuntimeError("Visit outreach is not installed; call build_visits before serving")
+        return self._visits
+
+    @visits.setter
+    def visits(self, service: VisitService) -> None:
+        self._visits = service
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
@@ -400,7 +413,7 @@ def build(
         calls.in_call, clock, random or secure_random,
     )
     config.on_change(gifts.notice)
-    return Backend(
+    backend = Backend(
         settings=settings,
         database=database,
         store=store,
@@ -435,3 +448,6 @@ def build(
         corpus=corpus,
         _closers=closers,
     )
+
+    build_visits(backend)
+    return backend

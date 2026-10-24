@@ -462,6 +462,8 @@ export type Account = {
   is_admin: boolean;
   exempting_keys: OwnService[];
   reach_outs: boolean | null;
+  visit_outreach?: boolean;
+  visit_outreach_mode?: "off" | "natural" | "tonight";
   sponsor_version: string | null;
 };
 
@@ -800,4 +802,36 @@ export async function* sendTurn(conversationId: string, text: string, userId: st
       if (data) yield JSON.parse(data) as TurnEvent;
     }
   }
+}
+
+export type NightVisitEvent = { type: "typing"; at?: string } | { type: "recorded" } | Extract<TurnEvent, { type: "delta" }>
+  | { type: "reach-out-done"; message: ReachOut };
+
+export async function* nightVisit(conversationId: string, signal: AbortSignal): AsyncGenerator<NightVisitEvent> {
+  const res = await api(`/api/visit-outreach/${conversationId}`, { method: "POST", signal });
+  if (!res.ok || !res.body) return;
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let end;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        for (const line of frame.split("\n")) if (line.startsWith("data: "))
+          yield JSON.parse(line.slice(6)) as NightVisitEvent;
+      }
+    }
+  } finally { await reader.cancel(); reader.releaseLock(); }
+}
+
+
+export async function setVisitOutreachMode(mode: "off" | "natural" | "tonight"): Promise<void> {
+  const res = await api("/api/account/visit-outreach-mode", {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) await json(res);
 }

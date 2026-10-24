@@ -130,3 +130,7 @@ describe("一级列表上的摘要", () => {
     expect(settingsSummaries({ ...loading, signInMethods: ["github", "google"] })["sign-in"]).toBe("GitHub、Google");
   });
 });
+
+it("keeps outreach settings available for visits when background outreach is off", () => {
+  expect(settingsGroups(null, true)[1]).toContain("reach-outs");
+});

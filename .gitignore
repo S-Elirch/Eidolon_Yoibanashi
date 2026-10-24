@@ -33,3 +33,14 @@ deploy/event-names.toml
 /.scratch/photos/prototype/tags/contact_sheet.png
 
 __pycache__/
+
+# Local dev4 runtime and private validation outputs (not release source).
+/.codex/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/eidolon-data-package-*.zip
+/backups/
+/validation/native/*results*.json
